@@ -1,0 +1,13 @@
+require('dotenv').config();
+const express=require('express');const cookieParser=require('cookie-parser');const path=require('path');
+const authRoutes=require('./routes/auth');const notificationRoutes=require('./routes/notifications');const marketingRoutes=require('./routes/marketing');const adminRoutes=require('./routes/admin');const storeRoutes=require('./routes/store');const orderRoutes=require('./routes/orders');const paymentRoutes=require('./routes/payments');
+const app=express();app.set('trust proxy',1);
+app.disable('x-powered-by');
+app.use((req,res,next)=>{res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','strict-origin-when-cross-origin');res.setHeader('X-Frame-Options','SAMEORIGIN');res.setHeader('Permissions-Policy','camera=(), microphone=(), geolocation=()');next()});
+app.use(express.json({limit:'1mb'}));app.use(cookieParser());
+app.get('/api/health',(req,res)=>res.json({ok:true,service:'loja-do-vinho',version:'V11',time:new Date().toISOString()}));
+app.use('/api/auth',authRoutes);app.use('/api/admin',adminRoutes);app.use('/api/store',storeRoutes);app.use('/api/orders',orderRoutes);app.use('/api/payments',paymentRoutes);app.use('/api/notifications',notificationRoutes);app.use('/api/marketing',marketingRoutes);
+app.use(express.static(path.join(__dirname,'..','public'),{maxAge:process.env.NODE_ENV==='production'?'1h':0}));
+app.get('*splat',(req,res)=>{if(req.path.startsWith('/api/'))return res.status(404).json({error:'Rota não encontrada.'});res.sendFile(path.join(__dirname,'..','public','index.html'))});
+const port=Number(process.env.PORT||3000);const server=app.listen(port,async()=>{console.log(`Loja do Vinho V11 em http://localhost:${port}`);if(String(process.env.PDV_AUTO_SYNC||'true').toLowerCase()==='true'&&process.env.PDV_DB_PATH){try{const {sync}=require('./services/pdv');console.log('PDV sync inicial:',await sync())}catch(e){console.error('PDV sync inicial:',e.message)}const minutes=Math.max(5,Number(process.env.PDV_SYNC_INTERVAL_MINUTES||15));setInterval(async()=>{try{const {sync}=require('./services/pdv');console.log('PDV sync automático:',await sync())}catch(e){console.error('PDV sync automático:',e.message)}},minutes*60*1000)}});
+function shutdown(signal){console.log(`${signal}: encerrando servidor...`);server.close(()=>process.exit(0));setTimeout(()=>process.exit(1),10000).unref()};process.on('SIGTERM',()=>shutdown('SIGTERM'));process.on('SIGINT',()=>shutdown('SIGINT'));

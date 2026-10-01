@@ -1,0 +1,5 @@
+const prisma = require('../db');
+function nowBR(){const p=new Intl.DateTimeFormat('pt-BR',{timeZone:'America/Sao_Paulo',weekday:'short',hour:'2-digit',minute:'2-digit',hour12:false}).formatToParts(new Date());const x={};p.forEach(v=>x[v.type]=v.value);return {day:{dom:0,seg:1,ter:2,qua:3,qui:4,sex:5,sáb:6}[x.weekday],time:`${x.hour}:${x.minute}`};}
+async function status(){const n=nowBR(), s=await prisma.deliverySchedule.findUnique({where:{dayOfWeek:n.day}}); const open=!!s?.enabled&&n.time>=s.opensAt&&n.time<=s.closesAt; return {open,now:n.time,schedule:s};}
+async function quote(city,state,district,subtotalCents){const st=await status();const z=await prisma.deliveryZone.findFirst({where:{city,state,district,active:true}});if(!z)return {available:false,reason:'bairro_nao_cadastrado',status:st};if(z.minOrderCents&&subtotalCents<z.minOrderCents)return {available:false,reason:'valor_minimo',minOrderCents:z.minOrderCents,status:st};return {available:st.open,priceCents:z.priceCents,etaMinutes:z.etaMinutes,reason:st.open?'ok':'fora_do_horario',status:st};}
+module.exports={status,quote,getDeliveryStatus:status,quoteLocalDelivery:quote};

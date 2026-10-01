@@ -1,0 +1,478 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  CUSTOMER
+  ADMIN
+}
+
+enum OrderStatus {
+  PENDING
+  PAYMENT_PENDING
+  PAID
+  PREPARING
+  SHIPPED
+  OUT_FOR_DELIVERY
+  DELIVERED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  PIX_ONLINE
+  CARD_ONLINE
+  PAGBANK
+  CASH_ON_DELIVERY
+  PIX_ON_DELIVERY
+  CARD_MACHINE
+}
+
+enum ShippingMethod {
+  MELHOR_ENVIO
+  DELIVERY
+  PICKUP
+}
+
+enum CouponType {
+  PERCENT
+  FIXED
+  FREE_SHIPPING
+  BUY_X_GET_Y
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  phone        String?
+  cpf          String?
+  passwordHash String
+  role         UserRole @default(CUSTOMER)
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  addresses    Address[]
+  orders       Order[]
+  couponUsages CouponUsage[]
+  pushTokens   PushToken[]
+  notifications Notification[]
+  loyaltyAccount LoyaltyAccount?
+  passkeys PasskeyCredential[]
+}
+
+model Address {
+  id         String   @id @default(cuid())
+  userId     String
+  label      String?
+  zipCode    String
+  street     String
+  number     String
+  complement String?
+  district   String
+  city       String
+  state      String
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orders     Order[]
+  @@index([zipCode])
+  @@index([city, district])
+}
+
+model Category {
+  id       String    @id @default(cuid())
+  name     String
+  slug     String    @unique
+  active   Boolean   @default(true)
+  products Product[]
+}
+
+model Product {
+  id             String       @id @default(cuid())
+  name           String
+  slug           String       @unique
+  description    String?
+  priceCents     Int
+  stock          Int          @default(0)
+  reservedStock  Int          @default(0)
+  imageUrl       String?
+  weightKg       Float?
+  lengthCm       Float?
+  widthCm        Float?
+  heightCm       Float?
+  active         Boolean      @default(true)
+  featured       Boolean      @default(false)
+  categoryId     String?
+  category       Category?    @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  orderItems     OrderItem[]
+  couponProducts CouponProduct[]
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  pdvId          String?      @unique
+  pdvManaged     Boolean      @default(true)
+  photos         ProductPhoto[]
+  @@index([active])
+}
+
+model Order {
+  id              String         @id @default(cuid())
+  number          Int            @unique @default(autoincrement())
+  userId          String
+  addressId       String?
+  status          OrderStatus    @default(PAYMENT_PENDING)
+  paymentMethod   PaymentMethod
+  shippingMethod  ShippingMethod
+  subtotalCents   Int
+  shippingCents   Int
+  discountCents   Int            @default(0)
+  totalCents      Int
+  couponId        String?
+  coupon          Coupon?        @relation(fields: [couponId], references: [id], onDelete: SetNull)
+  deliveryCity    String?
+  deliveryDistrict String?
+  notes           String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  user            User           @relation(fields: [userId], references: [id])
+  address         Address?       @relation(fields: [addressId], references: [id], onDelete: SetNull)
+  items           OrderItem[]
+  payment         Payment?
+  shippingQuote   Json?
+  paidAt          DateTime?
+  stockReservedAt DateTime?
+  stockReleasedAt DateTime?
+  customerNote    String?
+  adminNote       String?
+  deliveryCode    String?
+  riskScore       Int      @default(0)
+  riskFlags       Json?
+  verifiedAt      DateTime?
+  deliveredAt     DateTime?
+  events          OrderEvent[]
+  pdvQueue        PdvOrderQueue?
+  @@index([status, createdAt])
+}
+
+model OrderItem {
+  id          String  @id @default(cuid())
+  orderId     String
+  productId   String
+  productName String
+  unitCents   Int
+  quantity    Int
+  subtotalCents Int
+  order       Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product     Product @relation(fields: [productId], references: [id])
+  @@index([orderId])
+}
+
+model Payment {
+  id          String        @id @default(cuid())
+  orderId     String        @unique
+  method      PaymentMethod
+  provider    String?
+  providerId  String?
+  status      String        @default("PENDING")
+  amountCents Int
+  raw         Json?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  order       Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+model DeliveryZone {
+  id          String  @id @default(cuid())
+  city        String
+  state       String
+  district    String
+  priceCents  Int
+  minOrderCents Int?
+  etaMinutes  Int     @default(60)
+  active      Boolean @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  @@unique([city, state, district])
+  @@index([city, state, active])
+}
+
+model DeliverySchedule {
+  id         String  @id @default(cuid())
+  dayOfWeek  Int
+  enabled    Boolean @default(true)
+  opensAt    String
+  closesAt   String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  @@unique([dayOfWeek])
+}
+
+model ShippingSetting {
+  id              String  @id @default(cuid())
+  name            String  @unique
+  enabled         Boolean @default(true)
+  config          Json?
+  updatedAt       DateTime @updatedAt
+}
+
+model PaymentSetting {
+  id        String  @id @default(cuid())
+  method    PaymentMethod @unique
+  enabled   Boolean       @default(true)
+  config    Json?
+  updatedAt DateTime      @updatedAt
+}
+
+model Coupon {
+  id                    String      @id @default(cuid())
+  code                  String      @unique
+  name                  String
+  type                  CouponType
+  value                 Int         @default(0)
+  minOrderCents         Int?
+  maxDiscountCents      Int?
+  maxUses               Int?
+  usedCount             Int         @default(0)
+  maxUsesPerCustomer    Int?
+  startsAt              DateTime?
+  endsAt                DateTime?
+  active                Boolean     @default(true)
+  autoDisableOnExhaustion Boolean   @default(true)
+  customerOnlyUserId    String?
+  city                  String?
+  state                 String?
+  district              String?
+  freeShipping          Boolean     @default(false)
+  allowCombination      Boolean     @default(false)
+  products              CouponProduct[]
+  orders                Order[]
+  usages                CouponUsage[]
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
+  @@index([code, active])
+}
+
+model CouponProduct {
+  couponId  String
+  productId String
+  coupon    Coupon  @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  @@id([couponId, productId])
+}
+
+model CouponUsage {
+  id        String   @id @default(cuid())
+  couponId  String
+  userId    String
+  orderId   String
+  createdAt DateTime @default(now())
+  coupon    Coupon @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([couponId, orderId])
+  @@index([couponId, userId])
+}
+
+
+model LoyaltyAccount {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  points        Int      @default(0)
+  lifetimeEarned Int     @default(0)
+  lifetimeRedeemed Int   @default(0)
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ledger        LoyaltyLedger[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model LoyaltyLedger {
+  id          String   @id @default(cuid())
+  accountId   String
+  orderId     String?
+  type        String
+  points      Int
+  description String
+  expiresAt   DateTime?
+  createdAt   DateTime @default(now())
+  account     LoyaltyAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  @@index([accountId, createdAt])
+}
+
+model PasskeyCredential {
+  id           String   @id @default(cuid())
+  userId       String
+  credentialId String   @unique
+  publicKey    Bytes
+  counter      Int      @default(0)
+  transports   String?
+  createdAt    DateTime @default(now())
+  lastUsedAt   DateTime?
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId])
+}
+
+model StoreProfile {
+  id          String   @id @default(cuid())
+  legalName   String?
+  tradeName   String   @default("Loja do Vinho")
+  cnpj        String?
+  story       String?
+  address     String?
+  city        String?
+  state       String?
+  zipCode     String?
+  phone       String?
+  whatsapp    String?
+  email       String?
+  instagram   String?
+  facebook    String?
+  website     String?
+  logoUrl     String?
+  coverUrl    String?
+  active      Boolean  @default(true)
+  updatedAt   DateTime @updatedAt
+}
+
+model SecurityRule {
+  id                   String  @id @default(cuid())
+  key                  String  @unique
+  value                String
+  updatedAt            DateTime @updatedAt
+}
+
+model PdvSyncLog {
+  id          String   @id @default(cuid())
+  startedAt   DateTime @default(now())
+  finishedAt  DateTime?
+  created     Int      @default(0)
+  updated     Int      @default(0)
+  errors      Int      @default(0)
+  source      String   @default("SQLITE")
+  message     String?
+  snapshots   PdvInventorySnapshot[]
+}
+
+model PdvInventorySnapshot {
+  id           String   @id @default(cuid())
+  syncLogId    String?
+  pdvId        String
+  productId    String?
+  productName  String
+  physicalStock Int
+  reservedStock Int
+  availableStock Int
+  difference   Int
+  status       String   @default("OK")
+  createdAt    DateTime @default(now())
+  syncLog      PdvSyncLog? @relation(fields: [syncLogId], references: [id], onDelete: SetNull)
+  @@index([pdvId, createdAt])
+  @@index([status, createdAt])
+}
+
+model IntegrationAudit {
+  id         String   @id @default(cuid())
+  area       String
+  action     String
+  entityId   String?
+  success    Boolean  @default(true)
+  message    String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+  @@index([area, createdAt])
+}
+
+model ProductPhoto {
+  id        String   @id @default(cuid())
+  productId String
+  url       String
+  alt       String?
+  sortOrder Int      @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  @@index([productId, sortOrder])
+}
+
+model PaymentPriceRule {
+  id              String   @id @default(cuid())
+  method          PaymentMethod
+  scope           String   @default("ALL")
+  installments    Int?
+  adjustmentType  String   @default("PERCENT_DISCOUNT")
+  adjustmentValue Int      @default(0)
+  label           String?
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  @@index([method, scope, active])
+}
+
+model PushToken {
+  id         String   @id @default(cuid())
+  userId     String
+  token      String   @unique
+  platform   String?
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, active])
+}
+
+model Notification {
+  id         String   @id @default(cuid())
+  userId     String
+  title      String
+  body       String
+  type       String
+  data       Json?
+  readAt     DateTime?
+  sentAt     DateTime?
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, createdAt])
+}
+
+model Campaign {
+  id             String   @id @default(cuid())
+  title          String
+  body           String
+  audience       String   @default("ALL")
+  couponCode     String?
+  scheduledAt    DateTime?
+  sentAt         DateTime?
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+}
+
+model OrderEvent {
+  id         String   @id @default(cuid())
+  orderId    String
+  status     String
+  title      String
+  message    String
+  createdAt  DateTime @default(now())
+  order      Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  @@index([orderId, createdAt])
+}
+
+model PdvOrderQueue {
+  id             String   @id @default(cuid())
+  orderId        String   @unique
+  idempotencyKey String   @unique
+  status         String   @default("WAITING_PAYMENT")
+  attempts       Int      @default(0)
+  lastError      String?
+  externalRef    String?
+  payload        Json
+  queuedAt       DateTime @default(now())
+  sentAt         DateTime?
+  confirmedAt    DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  order          Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  @@index([status, createdAt])
+}
